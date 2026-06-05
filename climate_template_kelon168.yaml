@@ -1,0 +1,96 @@
+# ============================================================
+# KELON168 IR Climate Entity — Bedroom AC
+# Platform: climate_template (HACS: litinoveweedle/hass-template-climate)
+#
+# All IR computation is in script.bedroom_ac_ir_send
+# (stored in HA UI scripts storage, not configuration.yaml).
+#
+# Power ON  = TURBO frame + state frame (guaranteed power-on)
+# Power OFF = power toggle frame (protocol toggle — no absolute off)
+# State change = state frame only
+#
+# Hardcoded entities:
+#   remote.tuya_ir_remote_control     — Tuya IR blaster
+#   sensor.temp_tuya_screen_temperature — I Feel temp source
+#   input_boolean.bedroom_ac_i_feel   — I Feel toggle
+#   input_select.bedroom_ac_hvac_mode — mode helper
+#   input_number.bedroom_ac_target_temperature — temp helper
+#   input_select.bedroom_ac_fan_mode  — fan helper
+# ============================================================
+
+climate:
+  - platform: climate_template
+    name: "Bedroom AC"
+    unique_id: bedroom_ac_kelon168
+
+    current_temperature_template: "{{ states('sensor.temp_tuya_screen_temperature') | float(20) }}"
+    hvac_mode_template:           "{{ states('input_select.bedroom_ac_hvac_mode') }}"
+    fan_mode_template:            "{{ states('input_select.bedroom_ac_fan_mode') }}"
+    target_temperature_template:  "{{ states('input_number.bedroom_ac_target_temperature') | float(22) }}"
+
+    hvac_modes:
+      - "off"
+      - cool
+      - heat
+      - dry
+      - fan_only
+
+    fan_modes:
+      - auto
+      - low
+      - medium
+      - high
+
+    min_temp: 16
+    max_temp: 30
+    temp_step: 1
+
+    # ── set_hvac_mode ──────────────────────────────────────────
+    # off   → power_off (TURBO frame + power toggle = guaranteed off)
+    # mode  → power_on (TURBO frame + state frame = guaranteed on)
+    set_hvac_mode:
+      - service: input_select.select_option
+        data:
+          entity_id: input_select.bedroom_ac_hvac_mode
+          option: "{{ hvac_mode }}"
+      - service: script.bedroom_ac_ir_send
+        data:
+          ac_action:     "{{ 'power_off' if hvac_mode == 'off' else 'power_on' }}"
+          ac_mode:       "{{ hvac_mode if hvac_mode != 'off' else 'cool' }}"
+          ac_temp:       "{{ states('input_number.bedroom_ac_target_temperature') | int(22) }}"
+          ac_fan:        "{{ states('input_select.bedroom_ac_fan_mode') }}"
+          ac_ifeel:      "{{ is_state('input_boolean.bedroom_ac_i_feel', 'on') }}"
+          ac_ifeel_temp: "{{ states('sensor.temp_tuya_screen_temperature') | float(22) | round | int }}"
+
+    # ── set_temperature ────────────────────────────────────────
+    # Only sends IR — no power change. climate_template may call
+    # this spuriously on mode change (same value as helper → extra beep,
+    # harmless).
+    set_temperature:
+      - service: input_number.set_value
+        data:
+          entity_id: input_number.bedroom_ac_target_temperature
+          value: "{{ temperature | int }}"
+      - service: script.bedroom_ac_ir_send
+        data:
+          ac_action:     state
+          ac_mode:       "{{ states('input_select.bedroom_ac_hvac_mode') }}"
+          ac_temp:       "{{ temperature | int }}"
+          ac_fan:        "{{ states('input_select.bedroom_ac_fan_mode') }}"
+          ac_ifeel:      "{{ is_state('input_boolean.bedroom_ac_i_feel', 'on') }}"
+          ac_ifeel_temp: "{{ states('sensor.temp_tuya_screen_temperature') | float(22) | round | int }}"
+
+    # ── set_fan_mode ───────────────────────────────────────────
+    set_fan_mode:
+      - service: input_select.select_option
+        data:
+          entity_id: input_select.bedroom_ac_fan_mode
+          option: "{{ fan_mode }}"
+      - service: script.bedroom_ac_ir_send
+        data:
+          ac_action:     state
+          ac_mode:       "{{ states('input_select.bedroom_ac_hvac_mode') }}"
+          ac_temp:       "{{ states('input_number.bedroom_ac_target_temperature') | int(22) }}"
+          ac_fan:        "{{ fan_mode }}"
+          ac_ifeel:      "{{ is_state('input_boolean.bedroom_ac_i_feel', 'on') }}"
+          ac_ifeel_temp: "{{ states('sensor.temp_tuya_screen_temperature') | float(22) | round | int }}"
